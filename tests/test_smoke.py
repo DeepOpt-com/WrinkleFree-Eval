@@ -331,6 +331,123 @@ class TestConfigFiles:
         assert (configs_dir / "eval.yaml").exists()
 
 
+class TestWandBLogging:
+    """Tests for W&B logging integration."""
+
+    def test_wandb_available_flag(self):
+        """Test WANDB_AVAILABLE flag is set correctly."""
+        from wrinklefree_eval.api import WANDB_AVAILABLE
+        # Should be a boolean
+        assert isinstance(WANDB_AVAILABLE, bool)
+
+    @patch("wrinklefree_eval.api.evaluator.simple_evaluate")
+    @patch("wrinklefree_eval.api.lm_eval.tasks.include_path")
+    def test_evaluate_without_wandb(self, mock_include, mock_simple_eval):
+        """Test evaluate works without wandb parameters."""
+        from wrinklefree_eval.api import evaluate
+
+        mock_simple_eval.return_value = {"results": {"glue_sst2": {"acc,none": 0.9}}}
+
+        results = evaluate(
+            model_path="test/model",
+            benchmark="glue",
+            device="cpu",
+        )
+
+        # Should work without wandb
+        assert "glue_sst2" in results
+
+    @patch("wrinklefree_eval.api.WANDB_AVAILABLE", False)
+    @patch("wrinklefree_eval.api.evaluator.simple_evaluate")
+    @patch("wrinklefree_eval.api.lm_eval.tasks.include_path")
+    def test_evaluate_wandb_not_installed(self, mock_include, mock_simple_eval):
+        """Test evaluate handles missing wandb gracefully."""
+        from wrinklefree_eval.api import evaluate
+
+        mock_simple_eval.return_value = {"results": {}}
+
+        # Should not raise even if wandb_project specified
+        results = evaluate(
+            model_path="test/model",
+            benchmark="glue",
+            device="cpu",
+            wandb_project="test-project",
+        )
+
+        assert results == {}
+
+    @patch("wrinklefree_eval.api.WANDB_AVAILABLE", True)
+    @patch("wrinklefree_eval.api.wandb")
+    @patch("wrinklefree_eval.api.evaluator.simple_evaluate")
+    @patch("wrinklefree_eval.api.lm_eval.tasks.include_path")
+    def test_evaluate_with_wandb(self, mock_include, mock_simple_eval, mock_wandb):
+        """Test evaluate initializes and logs to wandb."""
+        from wrinklefree_eval.api import evaluate
+
+        mock_simple_eval.return_value = {
+            "results": {"glue_sst2": {"acc,none": 0.92}}
+        }
+        mock_run = MagicMock()
+        mock_wandb.init.return_value = mock_run
+
+        results = evaluate(
+            model_path="test/model",
+            benchmark="glue",
+            device="cpu",
+            wandb_project="test-project",
+            wandb_run_id="test-run-123",
+        )
+
+        # Verify wandb.init was called
+        mock_wandb.init.assert_called_once()
+        init_kwargs = mock_wandb.init.call_args.kwargs
+        assert init_kwargs["project"] == "test-project"
+        assert init_kwargs["id"] == "test-run-123"
+
+        # Verify finish was called
+        mock_run.finish.assert_called_once()
+
+    def test_log_to_wandb_function(self):
+        """Test _log_to_wandb helper function."""
+        from wrinklefree_eval.api import _log_to_wandb
+
+        mock_run = MagicMock()
+        results = {
+            "glue_sst2": {"acc": 0.92, "acc_stderr": 0.01},
+            "glue_mnli": {"acc": 0.85},
+        }
+
+        # Mock wandb.Table
+        with patch("wrinklefree_eval.api.wandb") as mock_wandb:
+            mock_wandb.Table = MagicMock()
+            _log_to_wandb(results, mock_run)
+
+        # Should have logged metrics
+        assert mock_run.log.called
+        # Should have created a summary table
+        mock_wandb.Table.assert_called_once()
+
+
+class TestUploadResults:
+    """Tests for upload_results.py script."""
+
+    def test_script_exists(self):
+        """Verify upload_results.py script exists."""
+        script_path = Path(__file__).parent.parent / "scripts" / "upload_results.py"
+        assert script_path.exists()
+
+    def test_script_is_importable(self):
+        """Verify script can be imported."""
+        import sys
+        scripts_path = str(Path(__file__).parent.parent / "scripts")
+        if scripts_path not in sys.path:
+            sys.path.insert(0, scripts_path)
+
+        # Should not raise
+        import upload_results
+        assert hasattr(upload_results, "upload_directory_to_gcs")
+
+
 @pytest.mark.slow
 class TestIntegration:
     """Integration tests that require model downloads.

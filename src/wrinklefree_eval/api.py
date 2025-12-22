@@ -3,12 +3,16 @@
 Simple one-liner interface:
     from wrinklefree_eval import evaluate
     results = evaluate("path/to/model", benchmark="bitdistill")
+
+With optional W&B logging:
+    results = evaluate("path/to/model", wandb_project="my-project")
 """
 
 from pathlib import Path
 from typing import Any
 import json
 import logging
+import os
 
 import lm_eval
 from lm_eval import evaluator
@@ -16,6 +20,14 @@ from lm_eval.tasks import TaskManager
 from omegaconf import OmegaConf
 
 logger = logging.getLogger(__name__)
+
+# Optional wandb import
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    wandb = None
 
 # Task name mapping from our configs to lm-eval task names
 TASK_MAPPING = {
@@ -59,12 +71,18 @@ def evaluate(
     use_bitnet: bool = False,
     trust_remote_code: bool = True,
     verbosity: str = "INFO",
+    wandb_project: str | None = None,
+    wandb_run_id: str | None = None,
+    wandb_run_name: str | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """Evaluate a model on BitDistill benchmarks.
 
     Simple one-liner API for evaluation:
         results = evaluate("path/to/model", benchmark="bitdistill")
+
+    With W&B logging:
+        results = evaluate("path/to/model", wandb_project="my-project")
 
     Args:
         model_path: HuggingFace model ID or local path to model
@@ -80,6 +98,9 @@ def evaluate(
         use_bitnet: Use BitNet kernels if available
         trust_remote_code: Trust remote code in model config
         verbosity: Logging verbosity ("DEBUG", "INFO", "WARNING")
+        wandb_project: W&B project name (None = no logging)
+        wandb_run_id: W&B run ID for resuming (None = auto-generate)
+        wandb_run_name: W&B run display name (None = auto-generate)
         **kwargs: Additional arguments passed to lm_eval.simple_evaluate
 
     Returns:
@@ -92,6 +113,29 @@ def evaluate(
     """
     # Configure logging
     logging.basicConfig(level=getattr(logging, verbosity))
+
+    # Initialize W&B if requested
+    wandb_run = None
+    if wandb_project:
+        if not WANDB_AVAILABLE:
+            logger.warning("wandb_project specified but wandb not installed. Install with: pip install wandb")
+        else:
+            wandb_run = wandb.init(
+                project=wandb_project,
+                id=wandb_run_id,
+                name=wandb_run_name or f"eval-{benchmark}",
+                config={
+                    "model_path": model_path,
+                    "benchmark": benchmark,
+                    "device": device,
+                    "dtype": dtype,
+                    "batch_size": batch_size,
+                    "limit": limit,
+                    "smoke_test": smoke_test,
+                },
+                resume="allow" if wandb_run_id else None,
+            )
+            logger.info(f"W&B run initialized: {wandb_run.url}")
 
     # Resolve tasks from benchmark preset
     if tasks is None:
@@ -167,7 +211,43 @@ def evaluate(
             serializable = _make_serializable(results)
             json.dump(serializable, f, indent=2)
 
+    # Log to W&B if initialized
+    if wandb_run is not None:
+        _log_to_wandb(formatted_results, wandb_run)
+        wandb_run.finish()
+        logger.info("W&B run finished")
+
     return formatted_results
+
+
+def _log_to_wandb(results: dict[str, Any], run) -> None:
+    """Log evaluation results to Weights & Biases.
+
+    Args:
+        results: Formatted evaluation results
+        run: Active wandb run
+    """
+    # Log each metric with task prefix
+    for task_name, task_results in results.items():
+        for metric_name, value in task_results.items():
+            if isinstance(value, (int, float)) and "_stderr" not in metric_name:
+                run.log({f"{task_name}/{metric_name}": value})
+
+    # Create summary table
+    summary_data = []
+    for task_name, task_results in results.items():
+        row = {"task": task_name}
+        for metric_name, value in task_results.items():
+            if isinstance(value, (int, float)) and "_stderr" not in metric_name:
+                row[metric_name] = value
+        summary_data.append(row)
+
+    if summary_data:
+        table = wandb.Table(
+            columns=list(summary_data[0].keys()),
+            data=[list(row.values()) for row in summary_data],
+        )
+        run.log({"results_summary": table})
 
 
 def _format_results(results: dict) -> dict[str, Any]:

@@ -68,6 +68,21 @@ def main():
         action="store_true",
         help="List available benchmarks and exit",
     )
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="W&B project name (enables logging)",
+    )
+    parser.add_argument(
+        "--wandb-run-id",
+        default=None,
+        help="W&B run ID for resuming",
+    )
+    parser.add_argument(
+        "--wandb-run-name",
+        default=None,
+        help="W&B run display name",
+    )
 
     args = parser.parse_args()
 
@@ -101,6 +116,9 @@ def main():
         limit=args.limit,
         smoke_test=args.smoke_test,
         output_dir=args.output_dir,
+        wandb_project=args.wandb_project,
+        wandb_run_id=args.wandb_run_id,
+        wandb_run_name=args.wandb_run_name,
     )
 
     # Print results

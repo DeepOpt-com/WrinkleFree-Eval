@@ -32,6 +32,10 @@ results = evaluate("path/to/model", benchmark="smoke_test")
 # GLUE only
 results = evaluate("path/to/model", benchmark="glue")
 
+# With W&B logging
+results = evaluate("path/to/model", benchmark="bitdistill",
+                   wandb_project="my-project")
+
 # Access results
 print(results["glue_sst2"]["acc"])           # 0.92
 print(results["cnn_dailymail_summarization"]["rouge1"])  # 0.45
@@ -110,6 +114,40 @@ results = evaluate(
 ## Backend
 
 Built on [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) by EleutherAI. Uses **real benchmarks**, not approximations.
+
+## Remote Evaluation (via Deployer)
+
+Run evaluations on remote GPUs using WrinkleFree-Deployer:
+
+```bash
+cd ../WrinkleFree-Deployer
+
+# Evaluate HuggingFace model
+sky launch skypilot/eval.yaml \
+  --env MODEL_PATH=HuggingFaceTB/SmolLM2-135M \
+  --env BENCHMARK=smoke_test
+
+# Evaluate GCS checkpoint with W&B logging
+sky launch skypilot/eval.yaml \
+  --env MODEL_PATH=gs://bucket/checkpoint \
+  --env BENCHMARK=bitdistill \
+  --env WANDB_PROJECT=wrinklefree
+```
+
+See [WrinkleFree-Deployer](../WrinkleFree-Deployer) for full deployment documentation.
+
+## Optional Dependencies
+
+```bash
+# W&B logging support
+uv sync --extra wandb
+
+# GCS upload support
+uv sync --extra gcs
+
+# All optional features
+uv sync --extra all
+```
 
 ## Development
 

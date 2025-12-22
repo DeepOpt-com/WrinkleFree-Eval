@@ -33,6 +33,16 @@ dev = [
 bitnet = [
     # BitNet inference kernels (optional)
 ]
+wandb = [
+    "wandb>=0.16.0",
+]
+gcs = [
+    "google-cloud-storage>=2.14.0",
+]
+all = [
+    "wandb>=0.16.0",
+    "google-cloud-storage>=2.14.0",
+]
 
 [project.scripts]
 wrinklefree-eval = "wrinklefree_eval.cli:main"

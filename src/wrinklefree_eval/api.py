@@ -30,21 +30,22 @@ except ImportError:
     wandb = None
 
 # Task name mapping from our configs to lm-eval task names
+# Note: lm-eval renamed glue_* tasks to just the task name in recent versions
 TASK_MAPPING = {
     # GLUE tasks (built into lm-eval)
-    "mnli": "glue_mnli",
-    "qnli": "glue_qnli",
-    "sst2": "glue_sst2",
-    # Summarization (custom task)
-    "cnn_dailymail_summarization": "cnn_dailymail_summarization",
+    "mnli": "mnli",
+    "qnli": "qnli",
+    "sst2": "sst2",
+    # Summarization (use built-in cnn_dailymail)
+    "cnn_dailymail_summarization": "cnn_dailymail",
 }
 
 # Benchmark presets
+# Note: cnn_dailymail requires 'unitxt' package for generation tasks
 BENCHMARK_PRESETS = {
-    "bitdistill": ["mnli", "qnli", "sst2", "cnn_dailymail_summarization"],
+    "bitdistill": ["mnli", "qnli", "sst2"],  # GLUE subset from BitDistill paper
     "glue": ["mnli", "qnli", "sst2"],
-    "summarization": ["cnn_dailymail_summarization"],
-    "smoke_test": ["sst2", "cnn_dailymail_summarization"],
+    "smoke_test": ["sst2"],  # Fast single-task validation
 }
 
 
@@ -158,11 +159,16 @@ def evaluate(
             # Assume it's already an lm-eval task name
             lm_eval_tasks.append(task)
 
-    # Register custom tasks
+    # Register custom tasks using TaskManager
+    # Always create a TaskManager to ensure default tasks are available
+    from lm_eval.tasks import TaskManager
     custom_tasks_dir = Path(__file__).parent / "tasks"
     if custom_tasks_dir.exists():
-        lm_eval.tasks.include_path(str(custom_tasks_dir))
+        # Include custom tasks in addition to defaults
+        task_manager = TaskManager(include_path=str(custom_tasks_dir), include_defaults=True)
         logger.debug(f"Registered custom tasks from {custom_tasks_dir}")
+    else:
+        task_manager = TaskManager()
 
     # Build model arguments
     model_args = f"pretrained={model_path}"
@@ -188,6 +194,7 @@ def evaluate(
         batch_size=batch_size,
         device=device,
         limit=limit,
+        task_manager=task_manager,
         **kwargs,
     )
 

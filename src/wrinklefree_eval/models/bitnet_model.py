@@ -124,24 +124,54 @@ class BitNetModel(HuggingFaceModel):
         batch_size: int | str,
         **kwargs,
     ):
-        """Initialize with BitNet kernels.
+        """Initialize with BitNet.cpp inference server.
 
-        This method attempts to use the BitNet inference backend for
+        This method connects to a running BitNet.cpp server for
         optimized ternary weight computation.
-        """
-        # For now, BitNet integration is experimental
-        # TODO: Implement full BitNet kernel integration
-        # The microsoft/BitNet repo uses llama.cpp as backend
-        #
-        # Approach:
-        # 1. Convert model to BitNet format if needed
-        # 2. Load with BitNet runtime
-        # 3. Wrap in lm_eval compatible interface
 
-        raise NotImplementedError(
-            "Full BitNet kernel integration is not yet implemented. "
-            "Using HuggingFace fallback for now."
-        )
+        The server can be started via WrinkleFree-Inference-Engine:
+            uv run wrinklefree-inference serve -m model.gguf --port 8080
+        """
+        import os
+
+        # Check for inference server URL
+        inference_url = os.environ.get("INFERENCE_URL", "http://localhost:8080")
+
+        try:
+            # Import client from WrinkleFree-Inference-Engine
+            # First try installed package
+            try:
+                from wrinklefree_inference.client import BitNetClient
+            except ImportError:
+                # Fall back to relative import from meta-repo
+                import sys
+                inference_engine_path = self._bitnet_path.parent.parent / "WrinkleFree-Inference-Engine"
+                if inference_engine_path.exists():
+                    sys.path.insert(0, str(inference_engine_path / "src"))
+                    from wrinklefree_inference.client import BitNetClient
+                else:
+                    raise ImportError("WrinkleFree-Inference-Engine not found")
+
+            self._client = BitNetClient.from_url(inference_url)
+
+            # Check server health
+            if not self._client.health_check():
+                raise ConnectionError(
+                    f"BitNet inference server not responding at {inference_url}. "
+                    "Start the server with: uv run wrinklefree-inference serve -m model.gguf"
+                )
+
+            logger.info(f"Connected to BitNet inference server at {inference_url}")
+
+            # Store for generation
+            self._inference_url = inference_url
+            self._batch_size = batch_size if isinstance(batch_size, int) else 1
+
+        except Exception as e:
+            raise RuntimeError(
+                f"BitNet kernel integration failed: {e}\n"
+                "Make sure the inference server is running at INFERENCE_URL or localhost:8080"
+            ) from e
 
     @property
     def using_bitnet_kernels(self) -> bool:
